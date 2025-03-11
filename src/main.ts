@@ -14,6 +14,7 @@ document.body.appendChild(container);
 const app = new MiningVizApp(container);
 
 // Load data - adjust path to your actual file location
-app.loadData('/data/BM_PL_250224_mod_250228.csv');
+// app.loadData('/data/BM_PL_250224_mod_250228.csv');
+app.loadData(`${import.meta.env.BASE_URL}data/BM_PL_250224_mod_250228.csv`);
 
 console.log('Main initialization complete');
