@@ -1,24 +1,19 @@
-import './style.css'
-import typescriptLogo from './typescript.svg'
-import viteLogo from '/vite.svg'
-import { setupCounter } from './counter.ts'
+import { MiningVizApp } from './app';
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-  <div>
-    <a href="https://vite.dev" target="_blank">
-      <img src="${viteLogo}" class="logo" alt="Vite logo" />
-    </a>
-    <a href="https://www.typescriptlang.org/" target="_blank">
-      <img src="${typescriptLogo}" class="logo vanilla" alt="TypeScript logo" />
-    </a>
-    <h1>Vite + TypeScript</h1>
-    <div class="card">
-      <button id="counter" type="button"></button>
-    </div>
-    <p class="read-the-docs">
-      Click on the Vite and TypeScript logos to learn more
-    </p>
-  </div>
-`
+// Create container
+const container = document.createElement('div');
+container.style.width = '100vw';
+container.style.height = '100vh';
+container.style.margin = '0';
+container.style.overflow = 'hidden';
+document.body.style.margin = '0';
+document.body.style.overflow = 'hidden';
+document.body.appendChild(container);
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+// Initialize app
+const app = new MiningVizApp(container);
+
+// Load data - adjust path to your actual file location
+app.loadData('/data/BM_PL_250224_mod_250228.csv');
+
+console.log('Main initialization complete');
