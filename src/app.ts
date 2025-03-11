@@ -214,7 +214,7 @@ private createBlockModel(blocks: BlockData[]) {
   
   // Scale factors - make blocks smaller overall and exaggerate height
   const scaleFactor = 0.7; // Overall scale reduction
-  const heightScaleFactor = 1.5; // Height exaggeration
+  const heightScaleFactor = 2; // Height exaggeration
   
   // Create blocks by rock type
   Object.entries(blocksByRock).forEach(([rockType, blocksOfType]) => {
