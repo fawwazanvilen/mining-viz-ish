@@ -24,10 +24,14 @@ export class MiningVizApp {
   private coordinateOffset = new THREE.Vector3(); // to handle large coordinates
 
   // for clipping plane
-  private clipPlane = new THREE.Plane();
-  private clipPlaneHelper: THREE.PlaneHelper | null = null;
-  private clipEnabled = false;
-  private clipDistance = 100;
+  private clipPlanes = {
+    xy: new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),  // Normal along Z axis
+    yz: new THREE.Plane(new THREE.Vector3(1, 0, 0), 0),  // Normal along X axis
+    xz: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)   // Normal along Y axis
+  };
+  private clipPlaneHelpers: {[key: string]: THREE.PlaneHelper} = {};
+  private activeClipPlane: string | null = null;
+  private clipPosition = 0;
 
   // constructor method
   constructor(container: HTMLElement) {
@@ -52,20 +56,8 @@ export class MiningVizApp {
     this.camera.position.set(0, 0, 1000);
     
     // set up controls
-    // this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    // this.controls = new MapControls(this.camera, this.renderer.domElement);
-    // this.controls = new ArcballControls(this.camera, this.renderer.domElement, this.scene);
-    // this.controls.enableDamping = true;
-    // this.controls.dampingFactor = 0.1;
-    // Add event listener for camera changes
-    // (this.controls as ArcballControls).addEventListener('change', () => {
-    //   this.renderer.render(this.scene, this.camera);
-    // });
-    // Set initial camera position and update controls
-    // this.camera.position.set(0, 0, 1000);
-    // (this.controls as ArcballControls).update();
     this.controls = new ArcballControls(this.camera, this.renderer.domElement, this.scene);
-    (this.controls as ArcballControls).setGizmosVisible(true); // Make gizmos visible
+    (this.controls as ArcballControls).setGizmosVisible(false); // Make gizmos visible
     (this.controls as ArcballControls).setTbRadius(0.5); // Set appropriate radius
 
     // setup clipping plane
@@ -300,115 +292,139 @@ export class MiningVizApp {
     panel.style.zIndex = '1000';
     panel.style.color = 'white';
 
-    // Toggle button
-    const toggleBtn = document.createElement('button');
-    toggleBtn.textContent = 'Toggle Cross-Section';
-    toggleBtn.onclick = () => this.toggleClipping();
+    // create radio buttons for each plane
+    const planeLabels = {
+      'xy': 'XY Plane (cut along Z)',
+      'yz': 'YZ Plane (cut along X)',
+      'xz': 'XZ Plane (cut along Y)'
+    };
 
-    // Distance slider
-    const distanceSlider = document.createElement('input');
-    distanceSlider.type = 'range';
-    distanceSlider.min = '0.1';
-    distanceSlider.max = '5000';
-    distanceSlider.value = this.clipDistance.toString();
-    distanceSlider.oninput = (e) => {
-      this.clipDistance = parseFloat((e.target as HTMLInputElement).value);
+    Object.entries(planeLabels).forEach(([plane, label]) => {
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'clipPlane';
+      radio.value = plane;
+      radio.id = `plane-${plane}`;
+      radio.onclick = () => this.setActiveClipPlane(plane);
+  
+      const labelElement = document.createElement('label');
+      labelElement.htmlFor = `plane-${plane}`;
+      labelElement.textContent = label;
+  
+      panel.appendChild(radio);
+      panel.appendChild(labelElement);
+      panel.appendChild(document.createElement('br'));
+    });
+
+    // add a 'disable' option
+    const disableRadio = document.createElement('input');
+    disableRadio.type = 'radio';
+    disableRadio.name = 'clipPlane';
+    disableRadio.value = 'none';
+    disableRadio.id = 'plane-none';
+    disableRadio.checked = true;
+    disableRadio.onclick = () => this.disableClipping();
+
+    const disableLabel = document.createElement('label');
+    disableLabel.htmlFor = 'plane-none';
+    disableLabel.textContent = 'No Clipping';
+
+    panel.appendChild(disableRadio);
+    panel.appendChild(disableLabel);
+    panel.appendChild(document.createElement('br'));
+    panel.appendChild(document.createElement('br'));
+
+    // Position slider
+    const positionSlider = document.createElement('input');
+    positionSlider.type = 'range';
+    positionSlider.min = '-2000';
+    positionSlider.max = '2000';
+    positionSlider.value = '0';
+    positionSlider.id = 'clip-position';
+    positionSlider.oninput = (e) => {
+      this.clipPosition = parseFloat((e.target as HTMLInputElement).value);
       this.updateClipPlane();
     };
 
-    panel.appendChild(toggleBtn);
-    panel.appendChild(document.createElement('br'));
-    panel.appendChild(document.createTextNode('Distance: '));
-    panel.appendChild(distanceSlider);
+    const sliderLabel = document.createElement('label');
+    sliderLabel.htmlFor = 'clip-position';
+    sliderLabel.textContent = 'Clip Position: ';
+
+    panel.appendChild(sliderLabel);
+    panel.appendChild(positionSlider);
 
     container.appendChild(panel);
   }
 
-  // toggle clipping function
-  private toggleClipping() {
-    this.clipEnabled = !this.clipEnabled;
+  // set active clip plane
+  private setActiveClipPlane(plane: string) {
+    // Disable current clipping
+    this.disableClipping();
 
-    if (this.clipEnabled) {
-      // create plane helper if it doesn't exist
-      if (!this.clipPlaneHelper) {
-        this.clipPlaneHelper = new THREE.PlaneHelper(this.clipPlane, 1000, 0xff0000);
-        this.scene.add(this.clipPlaneHelper);
-      }
+    // Set new active plane
+    this.activeClipPlane = plane;
 
-      // enable clipping on all materials
-      this.scene.traverse((node) => {
-        if (node instanceof THREE.Mesh) {
-          node.material.clippingPlanes = [this.clipPlane];
-          node.material.clipIntersection = false;
-          node.material.needsUpdate = true;
-        }
-      });
-
-      this.updateClipPlane();
-      // this.createCrossSectionEdges();
-    } else {
-      // Disable clipping
-      this.scene.traverse((node) => {
-        if (node instanceof THREE.Mesh) {
-          node.material.clippingPlanes = [];
-          node.material.needsUpdate = true;
-        }
-      });
+    // Create helper if it doesn't exist
+    if (!this.clipPlaneHelpers[plane]) {
+      this.clipPlaneHelpers[plane] = new THREE.PlaneHelper(
+        this.clipPlanes[plane as keyof typeof this.clipPlanes], 
+        1000, 
+        0xff0000
+      );
+      this.scene.add(this.clipPlaneHelpers[plane]);
     }
-
-    // update renderer
-    this.renderer.localClippingEnabled = this.clipEnabled;
-  }
-
-  // update clip plane position
-  private updateClipPlane() {
-    // return early
-    if (!this.clipEnabled) return;
-
-    // Get camera direction
-    const cameraDirection = new THREE.Vector3(0, 0, -1);
-    cameraDirection.applyQuaternion(this.camera.quaternion);
-
-    // set plane normal to face camera
-    this.clipPlane.normal.copy(cameraDirection);
-
-    // position plane at specified distance from camera
-    const planePosition = new THREE.Vector3();
-    planePosition.copy(this.camera.position)
-      .add(cameraDirection.multiplyScalar(this.clipDistance));
-
-    this.clipPlane.constant = planePosition.dot(this.clipPlane.normal);
-
-    // update helper
-    if (this.clipPlaneHelper) {
-      this.clipPlaneHelper.visible = true;
-      this.clipPlaneHelper.updateMatrixWorld();
-    }
-  }
-
-  private createCrossSectionEdges() {
-    // create a second pass material that highlight edges
-    const edgeMaterial = new THREE.LineBasicMaterial({
-      color: 0xffff00,
-      linewidth: 2
-    });
-
+  
+    // Enable clipping on all materials
     this.scene.traverse((node) => {
       if (node instanceof THREE.Mesh) {
-        const edges = new THREE.EdgesGeometry(node.geometry);
-        const line = new THREE.LineSegments(edges, edgeMaterial);
-        line.position.copy(node.position);
-        line.rotation.copy(node.rotation);
-        line.scale.copy(node.scale);
-
-        // only show edges at the intersection
-        line.material.clippingPlanes = [this.clipPlane];
-        line.material.clipIntersection = true;
-
-        this.scene.add(line);
+        node.material.clippingPlanes = [this.clipPlanes[plane as keyof typeof this.clipPlanes]];
+        node.material.clipIntersection = false;
+        node.material.needsUpdate = true;
       }
-    })
+    });
+
+    // Update plane position
+    this.updateClipPlane();
+    
+    // Enable clipping in renderer
+    this.renderer.localClippingEnabled = true;
   }
+
+  // disable clipping
+  private disableClipping() {
+    // Hide all helpers
+    Object.values(this.clipPlaneHelpers).forEach(helper => {
+      helper.visible = false;
+    });
+    
+    // Remove clipping planes from materials
+    this.scene.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        node.material.clippingPlanes = [];
+        node.material.needsUpdate = true;
+      }
+    });
+    
+    this.activeClipPlane = null;
+    this.renderer.localClippingEnabled = false;
+  }
+
+  private updateClipPlane() {
+    if (!this.activeClipPlane) return;
+    
+    const plane = this.clipPlanes[this.activeClipPlane as keyof typeof this.clipPlanes];
+    
+    // Update plane constant (position)
+    plane.constant = -this.clipPosition;
+    
+    // Show helper
+    const helper = this.clipPlaneHelpers[this.activeClipPlane];
+    if (helper) {
+      helper.visible = true;
+      helper.updateMatrixWorld();
+    }
+  }
+  
   
   private animate = () => {
     requestAnimationFrame(this.animate);
@@ -416,7 +432,7 @@ export class MiningVizApp {
     (this.controls as ArcballControls).update();
 
     // update clip plane if camera movese
-    if (this.clipEnabled) {
+    if (this.activeClipPlane) {
       this.updateClipPlane();
     }
 
