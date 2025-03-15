@@ -2,6 +2,7 @@ import * as THREE from 'three';
 // import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 // import { MapControls } from 'three/addons/controls/MapControls.js';
 import { ArcballControls } from 'three/addons/controls/ArcballControls.js';
+// import { distance, instance } from 'three/tsl';
 
 // type definitions
 interface BlockData {
@@ -22,6 +23,13 @@ export class MiningVizApp {
   private modelCenter = new THREE.Vector3();
   private coordinateOffset = new THREE.Vector3(); // to handle large coordinates
 
+  // for clipping plane
+  private clipPlane = new THREE.Plane();
+  private clipPlaneHelper: THREE.PlaneHelper | null = null;
+  private clipEnabled = false;
+  private clipDistance = 100;
+
+  // constructor method
   constructor(container: HTMLElement) {
     console.log('Initializing app');
     
@@ -31,6 +39,7 @@ export class MiningVizApp {
     // setup renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
+    this.renderer.localClippingEnabled = false; // will be enabled when toggled on
     container.appendChild(this.renderer.domElement);
     
     // set up camera
@@ -45,10 +54,23 @@ export class MiningVizApp {
     // set up controls
     // this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     // this.controls = new MapControls(this.camera, this.renderer.domElement);
-    this.controls = new ArcballControls(this.camera, this.renderer.domElement, this.scene);
+    // this.controls = new ArcballControls(this.camera, this.renderer.domElement, this.scene);
     // this.controls.enableDamping = true;
     // this.controls.dampingFactor = 0.1;
-    
+    // Add event listener for camera changes
+    // (this.controls as ArcballControls).addEventListener('change', () => {
+    //   this.renderer.render(this.scene, this.camera);
+    // });
+    // Set initial camera position and update controls
+    // this.camera.position.set(0, 0, 1000);
+    // (this.controls as ArcballControls).update();
+    this.controls = new ArcballControls(this.camera, this.renderer.domElement, this.scene);
+    (this.controls as ArcballControls).setGizmosVisible(true); // Make gizmos visible
+    (this.controls as ArcballControls).setTbRadius(0.5); // Set appropriate radius
+
+    // setup clipping plane
+    this.setupClippingControls(container);
+
     // add lights
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(1, 1, 1);
@@ -170,105 +192,234 @@ export class MiningVizApp {
     this.coordinateOffset.set(minX, minY, minZ);
   }
   
-private createBlockModel(blocks: BlockData[]) {
-  console.log('Creating block model with', blocks.length, 'blocks');
-  
-  // Calculate model center after normalization
-  let xSum = 0, ySum = 0, zSum = 0;
-  blocks.forEach(block => {
-    xSum += block.centroid_x - this.coordinateOffset.x;
-    ySum += block.centroid_y - this.coordinateOffset.y;
-    zSum += block.centroid_z - this.coordinateOffset.z;
-  });
-  
-  this.modelCenter.set(
-    xSum / blocks.length,
-    zSum / blocks.length, // Map z (height) to y in Three.js
-    ySum / blocks.length  // Map y to z in Three.js
-  );
-  
-  console.log('Normalized model center:', this.modelCenter);
-  
-  // Group blocks by rock type
-  const rockTypes = [...new Set(blocks.map(block => block.rock))];
-  console.log('Rock types:', rockTypes);
-  
-  // Assign a color to each rock type
-  const rockColors = new Map<string, THREE.Color>();
-  rockTypes.forEach((rock, i) => {
-    // Generate distinct colors
-    const hue = i / rockTypes.length;
-    rockColors.set(rock, new THREE.Color().setHSL(hue, 0.8, 0.6));
-  });
-  
-  // Limit blocks to visualize for performance
-  const maxBlocks = 5000;
-  const visibleBlocks = blocks.length > maxBlocks ? blocks.slice(0, maxBlocks) : blocks;
-  console.log(`Visualizing ${visibleBlocks.length} of ${blocks.length} blocks`);
-  
-  // Group by rock type for better organization
-  const blocksByRock: Record<string, BlockData[]> = {};
-  visibleBlocks.forEach(block => {
-    if (!blocksByRock[block.rock]) {
-      blocksByRock[block.rock] = [];
-    }
-    blocksByRock[block.rock].push(block);
-  });
-  
-  // Create a group for the blocks
-  const blockGroup = new THREE.Group();
-  
-  // Scale factors - make blocks smaller overall and exaggerate height
-  const scaleFactor = 0.7; // Overall scale reduction
-  const heightScaleFactor = 2; // Height exaggeration
-  
-  // Create blocks by rock type
-  Object.entries(blocksByRock).forEach(([rockType, blocksOfType]) => {
-    // Get color for this rock type
-    const color = rockColors.get(rockType) || new THREE.Color(0xcccccc);
-    const material = new THREE.MeshLambertMaterial({ color });
+  private createBlockModel(blocks: BlockData[]) {
+    console.log('Creating block model with', blocks.length, 'blocks');
     
-    console.log(`Creating ${blocksOfType.length} ${rockType} blocks`);
-    
-    // Create blocks
-    blocksOfType.forEach(block => {
-      const geometry = new THREE.BoxGeometry(
-        block.dim_x * scaleFactor, 
-        block.dim_z * scaleFactor * heightScaleFactor, // Z dimension maps to Y (height) in Three.js
-        block.dim_y * scaleFactor  // Y dimension maps to Z in Three.js
-      );
-      
-      const cube = new THREE.Mesh(geometry, material);
-      
-      // Position using normalized coordinates with proper mapping
-      // x -> x, z -> y (height), y -> z
-      cube.position.set(
-        block.centroid_x - this.coordinateOffset.x,
-        (block.centroid_z - this.coordinateOffset.z) * heightScaleFactor, // Z to Y with height exaggeration
-        block.centroid_y - this.coordinateOffset.y
-      );
-      
-      blockGroup.add(cube);
+    // Calculate model center after normalization
+    let xSum = 0, ySum = 0, zSum = 0;
+    blocks.forEach(block => {
+      xSum += block.centroid_x - this.coordinateOffset.x;
+      ySum += block.centroid_y - this.coordinateOffset.y;
+      zSum += block.centroid_z - this.coordinateOffset.z;
     });
-  });
-  
-  // Add all blocks to scene
-  this.scene.add(blockGroup);
-  
-  // Position camera to better view the model
-  this.camera.position.set(
-    this.modelCenter.x + 500,
-    this.modelCenter.y + 500, // Look from above
-    this.modelCenter.z + 500
-  );
-  // this.controls.target.copy(this.modelCenter);
-  
-  console.log('Block model creation complete');
-}
+    
+    this.modelCenter.set(
+      xSum / blocks.length,
+      zSum / blocks.length, // Map z (height) to y in Three.js
+      ySum / blocks.length  // Map y to z in Three.js
+    );
+    
+    console.log('Normalized model center:', this.modelCenter);
+    
+    // Group blocks by rock type
+    const rockTypes = [...new Set(blocks.map(block => block.rock))];
+    console.log('Rock types:', rockTypes);
+    
+    // Assign a color to each rock type
+    const rockColors = new Map<string, THREE.Color>();
+    rockTypes.forEach((rock, i) => {
+      // Generate distinct colors
+      const hue = i / rockTypes.length;
+      rockColors.set(rock, new THREE.Color().setHSL(hue, 0.8, 0.6));
+    });
+    
+    // Limit blocks to visualize for performance
+    const maxBlocks = 5000;
+    const visibleBlocks = blocks.length > maxBlocks ? blocks.slice(0, maxBlocks) : blocks;
+    console.log(`Visualizing ${visibleBlocks.length} of ${blocks.length} blocks`);
+    
+    // Group by rock type for better organization
+    const blocksByRock: Record<string, BlockData[]> = {};
+    visibleBlocks.forEach(block => {
+      if (!blocksByRock[block.rock]) {
+        blocksByRock[block.rock] = [];
+      }
+      blocksByRock[block.rock].push(block);
+    });
+    
+    // Create a group for the blocks
+    const blockGroup = new THREE.Group();
+    
+    // Scale factors - make blocks smaller overall and exaggerate height
+    const scaleFactor = 0.7; // Overall scale reduction
+    const heightScaleFactor = 2; // Height exaggeration
+    
+    // Create blocks by rock type
+    Object.entries(blocksByRock).forEach(([rockType, blocksOfType]) => {
+      // Get color for this rock type
+      const color = rockColors.get(rockType) || new THREE.Color(0xcccccc);
+      const material = new THREE.MeshLambertMaterial({ color });
+      
+      console.log(`Creating ${blocksOfType.length} ${rockType} blocks`);
+      
+      // Create blocks
+      blocksOfType.forEach(block => {
+        const geometry = new THREE.BoxGeometry(
+          block.dim_x * scaleFactor, 
+          block.dim_z * scaleFactor * heightScaleFactor, // Z dimension maps to Y (height) in Three.js
+          block.dim_y * scaleFactor  // Y dimension maps to Z in Three.js
+        );
+        
+        const cube = new THREE.Mesh(geometry, material);
+        
+        // Position using normalized coordinates with proper mapping
+        // x -> x, z -> y (height), y -> z
+        cube.position.set(
+          block.centroid_x - this.coordinateOffset.x,
+          (block.centroid_z - this.coordinateOffset.z) * heightScaleFactor, // Z to Y with height exaggeration
+          block.centroid_y - this.coordinateOffset.y
+        );
+        
+        blockGroup.add(cube);
+      });
+    });
+    
+    // Add all blocks to scene
+    this.scene.add(blockGroup);
+    
+    // Position camera to better view the model
+    this.camera.position.set(
+      this.modelCenter.x + 500,
+      this.modelCenter.y + 500, // Look from above
+      this.modelCenter.z + 500
+    );
+    
+    console.log('Block model creation complete');
+  }
+
+  // for clipping/cross-section plane
+  private setupClippingControls(container: HTMLElement) {
+    const panel = document.createElement('div');
+    panel.className = 'clip-controls';
+    panel.style.position = 'absolute';
+    panel.style.top = '20px';
+    panel.style.right = '20px';
+    panel.style.backgroundColor = 'rgba(0,0,0,0.7)';
+    panel.style.padding = '15px';
+    panel.style.borderRadius = '5px';
+    panel.style.zIndex = '1000';
+    panel.style.color = 'white';
+
+    // Toggle button
+    const toggleBtn = document.createElement('button');
+    toggleBtn.textContent = 'Toggle Cross-Section';
+    toggleBtn.onclick = () => this.toggleClipping();
+
+    // Distance slider
+    const distanceSlider = document.createElement('input');
+    distanceSlider.type = 'range';
+    distanceSlider.min = '0.1';
+    distanceSlider.max = '5000';
+    distanceSlider.value = this.clipDistance.toString();
+    distanceSlider.oninput = (e) => {
+      this.clipDistance = parseFloat((e.target as HTMLInputElement).value);
+      this.updateClipPlane();
+    };
+
+    panel.appendChild(toggleBtn);
+    panel.appendChild(document.createElement('br'));
+    panel.appendChild(document.createTextNode('Distance: '));
+    panel.appendChild(distanceSlider);
+
+    container.appendChild(panel);
+  }
+
+  // toggle clipping function
+  private toggleClipping() {
+    this.clipEnabled = !this.clipEnabled;
+
+    if (this.clipEnabled) {
+      // create plane helper if it doesn't exist
+      if (!this.clipPlaneHelper) {
+        this.clipPlaneHelper = new THREE.PlaneHelper(this.clipPlane, 1000, 0xff0000);
+        this.scene.add(this.clipPlaneHelper);
+      }
+
+      // enable clipping on all materials
+      this.scene.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.material.clippingPlanes = [this.clipPlane];
+          node.material.clipIntersection = false;
+          node.material.needsUpdate = true;
+        }
+      });
+
+      this.updateClipPlane();
+      // this.createCrossSectionEdges();
+    } else {
+      // Disable clipping
+      this.scene.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.material.clippingPlanes = [];
+          node.material.needsUpdate = true;
+        }
+      });
+    }
+
+    // update renderer
+    this.renderer.localClippingEnabled = this.clipEnabled;
+  }
+
+  // update clip plane position
+  private updateClipPlane() {
+    // return early
+    if (!this.clipEnabled) return;
+
+    // Get camera direction
+    const cameraDirection = new THREE.Vector3(0, 0, -1);
+    cameraDirection.applyQuaternion(this.camera.quaternion);
+
+    // set plane normal to face camera
+    this.clipPlane.normal.copy(cameraDirection);
+
+    // position plane at specified distance from camera
+    const planePosition = new THREE.Vector3();
+    planePosition.copy(this.camera.position)
+      .add(cameraDirection.multiplyScalar(this.clipDistance));
+
+    this.clipPlane.constant = planePosition.dot(this.clipPlane.normal);
+
+    // update helper
+    if (this.clipPlaneHelper) {
+      this.clipPlaneHelper.visible = true;
+      this.clipPlaneHelper.updateMatrixWorld();
+    }
+  }
+
+  private createCrossSectionEdges() {
+    // create a second pass material that highlight edges
+    const edgeMaterial = new THREE.LineBasicMaterial({
+      color: 0xffff00,
+      linewidth: 2
+    });
+
+    this.scene.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        const edges = new THREE.EdgesGeometry(node.geometry);
+        const line = new THREE.LineSegments(edges, edgeMaterial);
+        line.position.copy(node.position);
+        line.rotation.copy(node.rotation);
+        line.scale.copy(node.scale);
+
+        // only show edges at the intersection
+        line.material.clippingPlanes = [this.clipPlane];
+        line.material.clipIntersection = true;
+
+        this.scene.add(line);
+      }
+    })
+  }
   
   private animate = () => {
     requestAnimationFrame(this.animate);
-    this.controls.update();
+    // this.controls.update(); // not needed for ArcballControls
+    (this.controls as ArcballControls).update();
+
+    // update clip plane if camera movese
+    if (this.clipEnabled) {
+      this.updateClipPlane();
+    }
+
     this.renderer.render(this.scene, this.camera);
   }
 }

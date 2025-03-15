@@ -2,8 +2,8 @@ import { MiningVizApp } from './app';
 
 // Create container
 const container = document.createElement('div');
-container.style.width = '60vw';
-container.style.height = '60vh';
+container.style.width = '100vw';
+container.style.height = '100vh';
 container.style.margin = '0';
 container.style.overflow = 'hidden';
 document.body.style.margin = '0';
