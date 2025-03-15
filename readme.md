@@ -2,7 +2,7 @@
 
 A 3D visualization tool for mining block models using Three.js. This tool allows users to load and visualize mining block data in an interactive 3D environment.
 
-![Mining Visualization Screenshot](https://via.placeholder.com/800x400?text=Mining+Visualization+Screenshot)
+![Mining Visualization Screenshot](./public/Screenshot%20From%202025-03-15%2021-18-42.png)
 
 ## Features
 
