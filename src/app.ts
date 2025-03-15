@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+// import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+// import { MapControls } from 'three/addons/controls/MapControls.js';
+import { ArcballControls } from 'three/addons/controls/ArcballControls.js';
 
 // type definitions
 interface BlockData {
@@ -16,7 +18,7 @@ export class MiningVizApp {
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
-  private controls: OrbitControls;
+  private controls: THREE.EventDispatcher; // more generic type to handle different type of controls
   private modelCenter = new THREE.Vector3();
   private coordinateOffset = new THREE.Vector3(); // to handle large coordinates
 
@@ -41,8 +43,11 @@ export class MiningVizApp {
     this.camera.position.set(0, 0, 1000);
     
     // set up controls
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
+    // this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // this.controls = new MapControls(this.camera, this.renderer.domElement);
+    this.controls = new ArcballControls(this.camera, this.renderer.domElement, this.scene);
+    // this.controls.enableDamping = true;
+    // this.controls.dampingFactor = 0.1;
     
     // add lights
     const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -122,6 +127,7 @@ export class MiningVizApp {
       
       try {
         const block: BlockData = {
+          // in UTM, particularly 52N in the example data's case
           centroid_x: parseFloat(values[0]),
           centroid_y: parseFloat(values[1]),
           centroid_z: parseFloat(values[2]),
@@ -255,7 +261,7 @@ private createBlockModel(blocks: BlockData[]) {
     this.modelCenter.y + 500, // Look from above
     this.modelCenter.z + 500
   );
-  this.controls.target.copy(this.modelCenter);
+  // this.controls.target.copy(this.modelCenter);
   
   console.log('Block model creation complete');
 }
